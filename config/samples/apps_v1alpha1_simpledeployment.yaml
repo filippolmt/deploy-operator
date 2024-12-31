@@ -1,0 +1,9 @@
+apiVersion: apps.filippomc.it/v1alpha1
+kind: SimpleDeployment
+metadata:
+  labels:
+    app.kubernetes.io/name: deploy-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: simpledeployment-sample
+spec:
+  # TODO(user): Add fields here
