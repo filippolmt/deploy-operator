@@ -20,22 +20,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// SimpleDeploymentSpec defines the desired fields from the CRD
 
-// SimpleDeploymentSpec defines the desired state of SimpleDeployment.
 type SimpleDeploymentSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of SimpleDeployment. Edit simpledeployment_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	Replicas *int32 `json:"replicas,omitempty"`
+	Image    string `json:"image"`
+	Port     int32  `json:"port,omitempty"`
 }
 
 // SimpleDeploymentStatus defines the observed state of SimpleDeployment.
 type SimpleDeploymentStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	AvailableReplicas int32 `json:"availableReplicas"`
 }
 
 // +kubebuilder:object:root=true

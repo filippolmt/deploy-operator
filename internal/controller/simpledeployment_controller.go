@@ -19,45 +19,111 @@ package controller
 import (
 	"context"
 
+	appsv1alpha1 "github.com/filippolmt/deploy-operator/api/v1alpha1"
+	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	appsv1alpha1 "github.com/filippolmt/deploy-operator/api/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-// SimpleDeploymentReconciler reconciles a SimpleDeployment object
+// SimpleDeploymentReconciler manages the reconciliation logic for SimpleDeployment.
 type SimpleDeploymentReconciler struct {
-	client.Client
+	Client client.Client
+	Log    logr.Logger
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=apps.filippomc.it,resources=simpledeployments,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=apps.filippomc.it,resources=simpledeployments/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=apps.filippomc.it,resources=simpledeployments/finalizers,verbs=update
-
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the SimpleDeployment object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/reconcile
+// Reconcile implements the reconciliation logic for SimpleDeployment.
 func (r *SimpleDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	log := r.Log.WithValues("simpledeployment", req.NamespacedName)
+	log.Info("Reconciling SimpleDeployment")
 
-	// TODO(user): your logic here
+	// Recupera l'istanza SimpleDeployment
+	var simpleDeployment appsv1alpha1.SimpleDeployment
+	if err := r.Client.Get(ctx, req.NamespacedName, &simpleDeployment); err != nil {
+		if errors.IsNotFound(err) {
+			// L'oggetto SimpleDeployment non esiste più, ignoriamo.
+			log.Info("SimpleDeployment resource not found. Ignoring since it must be deleted.")
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "Failed to get SimpleDeployment")
+		return ctrl.Result{}, err
+	}
 
+	// Definisci l'oggetto Deployment desiderato
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      simpleDeployment.Name,
+			Namespace: simpleDeployment.Namespace,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: simpleDeployment.Spec.Replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": simpleDeployment.Name},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{"app": simpleDeployment.Name},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "app",
+							Image: simpleDeployment.Spec.Image,
+							Ports: []corev1.ContainerPort{
+								{
+									ContainerPort: simpleDeployment.Spec.Port,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Set the controller as the owner of the Deployment.
+	if err := controllerutil.SetControllerReference(&simpleDeployment, deployment, r.Scheme); err != nil {
+		log.Error(err, "Failed to set owner reference on Deployment")
+		return ctrl.Result{}, err
+	}
+
+	// Check if the Deployment already exists.
+	var existingDeployment appsv1.Deployment
+	err := r.Client.Get(ctx, types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, &existingDeployment)
+	if err != nil && errors.IsNotFound(err) {
+		// Create a new Deployment
+		log.Info("Creating a new Deployment", "Deployment.Namespace", deployment.Namespace, "Deployment.Name", deployment.Name)
+		if err := r.Client.Create(ctx, deployment); err != nil {
+			log.Error(err, "Failed to create new Deployment", "Deployment.Namespace", deployment.Namespace, "Deployment.Name", deployment.Name)
+			return ctrl.Result{}, err
+		}
+	} else if err != nil {
+		log.Error(err, "Failed to get Deployment")
+		return ctrl.Result{}, err
+	} else {
+		// Update the existing Deployment, if necessary.
+		log.Info("Updating existing Deployment", "Deployment.Namespace", deployment.Namespace, "Deployment.Name", deployment.Name)
+		existingDeployment.Spec = deployment.Spec
+		if err := r.Client.Update(ctx, &existingDeployment); err != nil {
+			log.Error(err, "Failed to update Deployment", "Deployment.Namespace", deployment.Namespace, "Deployment.Name", deployment.Name)
+			return ctrl.Result{}, err
+		}
+	}
+
+	log.Info("Successfully reconciled SimpleDeployment")
 	return ctrl.Result{}, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager registers the controller with the manager.
 func (r *SimpleDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appsv1alpha1.SimpleDeployment{}).
-		Named("simpledeployment").
 		Complete(r)
 }
