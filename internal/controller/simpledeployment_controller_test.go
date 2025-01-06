@@ -21,24 +21,31 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	appsv1alpha1 "github.com/filippolmt/deploy-operator/api/v1alpha1"
 )
 
+func int32Ptr(i int32) *int32 {
+	return &i
+}
+
 var _ = Describe("SimpleDeployment Controller", func() {
 	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+		const (
+			resourceName      = "test-resource"
+			resourceNamespace = "default"
+		)
 
 		ctx := context.Background()
 
 		typeNamespacedName := types.NamespacedName{
 			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Namespace: resourceNamespace,
 		}
 		simpledeployment := &appsv1alpha1.SimpleDeployment{}
 
@@ -49,23 +56,27 @@ var _ = Describe("SimpleDeployment Controller", func() {
 				resource := &appsv1alpha1.SimpleDeployment{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
-						Namespace: "default",
+						Namespace: resourceNamespace,
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: appsv1alpha1.SimpleDeploymentSpec{
+						Replicas: int32Ptr(1),
+						Image:    "nginx:latest",
+						Port:     80,
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
+			By("deleting the custom resource for the Kind SimpleDeployment")
 			resource := &appsv1alpha1.SimpleDeployment{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance SimpleDeployment")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			if err == nil {
+				Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			}
 		})
+
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &SimpleDeploymentReconciler{
@@ -77,8 +88,25 @@ var _ = Describe("SimpleDeployment Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			By("Verifying the Deployment has been created")
+			deployment := &appsv1.Deployment{}
+			err = k8sClient.Get(ctx, typeNamespacedName, deployment)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verifica campi del Deployment
+			Expect(*deployment.Spec.Replicas).To(Equal(int32(1)))
+			Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+			container := deployment.Spec.Template.Spec.Containers[0]
+			Expect(container.Image).To(Equal("nginx:latest"))
+			Expect(container.Ports).To(HaveLen(1))
+			Expect(container.Ports[0].ContainerPort).To(Equal(int32(80)))
+
+			By("Verifying the Deployment is owned by SimpleDeployment")
+			ownerReferences := deployment.OwnerReferences
+			Expect(ownerReferences).To(HaveLen(1))
+			Expect(ownerReferences[0].Kind).To(Equal("SimpleDeployment"))
+			Expect(ownerReferences[0].Name).To(Equal(resourceName))
 		})
 	})
 })
