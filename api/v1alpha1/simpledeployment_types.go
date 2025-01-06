@@ -20,8 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// SimpleDeploymentSpec defines the desired fields from the CRD
-
+// SimpleDeploymentSpec defines the desired state of SimpleDeployment.
 type SimpleDeploymentSpec struct {
 	Replicas *int32 `json:"replicas,omitempty"`
 	Image    string `json:"image"`

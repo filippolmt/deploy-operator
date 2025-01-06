@@ -44,11 +44,11 @@ func (r *SimpleDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	log := r.Log.WithValues("simpledeployment", req.NamespacedName)
 	log.Info("Reconciling SimpleDeployment")
 
-	// Recupera l'istanza SimpleDeployment
+	// Get the SimpleDeployment resource with the name specified in req.
 	var simpleDeployment appsv1alpha1.SimpleDeployment
 	if err := r.Client.Get(ctx, req.NamespacedName, &simpleDeployment); err != nil {
 		if errors.IsNotFound(err) {
-			// L'oggetto SimpleDeployment non esiste più, ignoriamo.
+			// SimpleDeployment resource not found. Ignoring since object must be deleted.
 			log.Info("SimpleDeployment resource not found. Ignoring since it must be deleted.")
 			return ctrl.Result{}, nil
 		}
@@ -56,7 +56,7 @@ func (r *SimpleDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
-	// Definisci l'oggetto Deployment desiderato
+	// Define a new Deployment object.
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      simpleDeployment.Name,
@@ -108,13 +108,25 @@ func (r *SimpleDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		log.Error(err, "Failed to get Deployment")
 		return ctrl.Result{}, err
 	} else {
-		// Update the existing Deployment, if necessary.
-		log.Info("Updating existing Deployment", "Deployment.Namespace", deployment.Namespace, "Deployment.Name", deployment.Name)
-		existingDeployment.Spec = deployment.Spec
-		if err := r.Client.Update(ctx, &existingDeployment); err != nil {
-			log.Error(err, "Failed to update Deployment", "Deployment.Namespace", deployment.Namespace, "Deployment.Name", deployment.Name)
+		// Use Patch instead of overwriting the entire spec
+		log.Info("Patching existing Deployment", "Deployment.Namespace", deployment.Namespace, "Deployment.Name", deployment.Name)
+
+		// Prepare patch to update only necessary fields
+		patch := client.MergeFrom(existingDeployment.DeepCopy())
+		existingDeployment.Spec.Replicas = deployment.Spec.Replicas
+		existingDeployment.Spec.Template = deployment.Spec.Template
+
+		if err := r.Client.Patch(ctx, &existingDeployment, patch); err != nil {
+			log.Error(err, "Failed to patch Deployment", "Deployment.Namespace", deployment.Namespace, "Deployment.Name", deployment.Name)
 			return ctrl.Result{}, err
 		}
+	}
+
+	// Update SimpleDeployment status
+	simpleDeployment.Status.AvailableReplicas = existingDeployment.Status.AvailableReplicas
+	if err := r.Client.Status().Update(ctx, &simpleDeployment); err != nil {
+		log.Error(err, "Failed to update SimpleDeployment status")
+		return ctrl.Result{}, err
 	}
 
 	log.Info("Successfully reconciled SimpleDeployment")
@@ -125,5 +137,6 @@ func (r *SimpleDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 func (r *SimpleDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appsv1alpha1.SimpleDeployment{}).
+		Owns(&appsv1.Deployment{}).
 		Complete(r)
 }

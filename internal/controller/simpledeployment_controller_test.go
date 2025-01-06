@@ -69,7 +69,7 @@ var _ = Describe("SimpleDeployment Controller", func() {
 		})
 
 		AfterEach(func() {
-			By("Cleanup the specific resource instance SimpleDeployment")
+			By("deleting the custom resource for the Kind SimpleDeployment")
 			resource := &appsv1alpha1.SimpleDeployment{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			if err == nil {
